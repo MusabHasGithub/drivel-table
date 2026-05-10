@@ -1,15 +1,19 @@
 "use client";
 
-// Live subscription to a room's entries (= rows).
-// Sorted submittedAt-desc by default — newest at the top. Users can re-sort
-// once the table loads (TanStack handles that client-side).
+// Live subscription to a room's entries. Filters out soft-deleted by
+// default (deletedAt set); pass `includeDeleted: true` to surface them
+// for the trash view.
 
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { getDbOrNull } from "../firebase";
 import type { Entry } from "../types";
 
-export function useEntries(roomId: string | undefined) {
+export function useEntries(
+  roomId: string | undefined,
+  opts?: { includeDeleted?: boolean },
+) {
+  const includeDeleted = !!opts?.includeDeleted;
   const [entries, setEntries] = useState<Entry[]>([]);
   const [ready, setReady] = useState(false);
 
@@ -27,17 +31,18 @@ export function useEntries(roomId: string | undefined) {
     const unsub = onSnapshot(
       q,
       (snap) => {
+        const all = snap.docs.map(
+          (d) => ({ id: d.id, ...(d.data() as object) }) as Entry,
+        );
         setEntries(
-          snap.docs.map(
-            (d) => ({ id: d.id, ...(d.data() as object) }) as Entry,
-          ),
+          includeDeleted ? all : all.filter((e) => !e.deletedAt),
         );
         setReady(true);
       },
       () => setReady(true),
     );
     return unsub;
-  }, [roomId]);
+  }, [roomId, includeDeleted]);
 
   return { entries, ready };
 }

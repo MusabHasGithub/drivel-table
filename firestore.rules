@@ -1,20 +1,16 @@
 rules_version = '2';
 
-// COMBINED rules for the sv-nodes Firebase project. Holds rules for
-// BOTH the sv-nodes app (under /nodes, /regions, /users) AND
-// drivel-table (under /rooms). Deploying drivel-table/firestore.rules
-// writes this combined ruleset — don't drop the sv-nodes blocks below
-// or you'll break that other app.
-//
-// Deploy from this folder:
-//   firebase deploy --only firestore:rules
+// Combined rules for the sv-nodes Firebase project. Holds rules for BOTH
+// the sv-nodes app (under /nodes, /regions, /users) AND drivel-table
+// (under /rooms). Don't drop the sv-nodes blocks below — same project.
 //
 // drivel-table runs as a static site on GitHub Pages with no server, so
-// updates to entries (the per-cell extraction writes) happen from the
-// browser — see lib/entries.ts and lib/categories.ts. The rules below
-// allow any client with a non-empty `submittedBy` field on the entry
-// to update only the `extracted` map. App Check + the slim attack
-// surface (friend-group, no PII) make this acceptable for the use case.
+// updates happen from the browser. We allow the specific update shapes
+// the client needs:
+//   - entries: update the per-cell `extracted` map (extraction)
+//   - entries: toggle `deletedAt` (soft-delete + restore)
+//   - rooms:   toggle `deletedAt`
+//   - categories: toggle `deletedAt`
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -29,23 +25,19 @@ service cloud.firestore {
     match /nodes/{nodeId} {
       allow read: if true;
       allow create, update, delete: if isSignedIn();
-
       match /{subcollection}/{docId} {
         allow read: if true;
         allow create, update, delete: if isSignedIn();
       }
     }
-
     match /regions/{regionId} {
       allow read: if true;
       allow create, update, delete: if isSignedIn();
-
       match /{subcollection}/{docId} {
         allow read: if true;
         allow create, update, delete: if isSignedIn();
       }
     }
-
     match /users/{uid} {
       allow read: if true;
       allow write: if request.auth != null && request.auth.uid == uid;
@@ -59,41 +51,62 @@ service cloud.firestore {
         && request.resource.data.submittedBy is string
         && request.resource.data.submittedBy.size() > 0;
     }
-
     function hasCreatedBy() {
       return 'createdBy' in request.resource.data
         && request.resource.data.createdBy is string
         && request.resource.data.createdBy.size() > 0;
     }
 
-    // Updates that only touch the `extracted` map are permitted from the
-    // browser — this is what powers per-cell extraction writes after
-    // submitEntry and after addCategory's re-extraction loop. We require
-    // that the existing entry already has a submittedBy (since creates
-    // require it, this is always true), and that the update doesn't
-    // change submittedBy / submittedAt / drivel.
-    function entryUpdateOnlyExtracts() {
+    // The fields that may NOT change on an update vs. the existing doc.
+    // Used to gate "extraction-only" and "delete-toggle-only" updates so
+    // the immutable parts of an entry (drivel, submitter, timestamp) stay
+    // immutable.
+    function entryImmutableFieldsUnchanged() {
       return request.resource.data.submittedBy == resource.data.submittedBy
         && request.resource.data.submittedAt == resource.data.submittedAt
         && request.resource.data.drivel == resource.data.drivel;
     }
 
+    // Allow updates that only change the `extracted` map OR toggle
+    // `deletedAt` / `deletedBy`. The other fields stay as-is.
+    function entryUpdateAllowed() {
+      return entryImmutableFieldsUnchanged();
+    }
+
+    function roomUpdateAllowed() {
+      return request.resource.data.name == resource.data.name
+        && request.resource.data.slug == resource.data.slug
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function categoryUpdateAllowed() {
+      return request.resource.data.key == resource.data.key
+        && request.resource.data.label == resource.data.label
+        && request.resource.data.type == resource.data.type
+        && request.resource.data.builtin == resource.data.builtin
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
     match /rooms/{roomId} {
       allow read: if true;
       allow create: if hasCreatedBy();
-      allow update, delete: if false;
+      allow update: if roomUpdateAllowed();
+      allow delete: if false;
 
       match /entries/{entryId} {
         allow read: if true;
         allow create: if hasSubmittedBy();
-        allow update: if entryUpdateOnlyExtracts();
+        allow update: if entryUpdateAllowed();
         allow delete: if false;
       }
 
       match /categories/{categoryId} {
         allow read: if true;
         allow create: if hasCreatedBy();
-        allow update, delete: if false;
+        allow update: if categoryUpdateAllowed();
+        allow delete: if false;
       }
     }
   }

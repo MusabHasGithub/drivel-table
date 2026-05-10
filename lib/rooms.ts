@@ -1,5 +1,45 @@
 "use client";
 
+// Idempotently ensure the shared "tutorial" room exists. Called by the
+// Tutorial component on mount. Uses the same atomic transaction shape
+// as createRoom, but no-ops if the room already exists (so multiple
+// users hitting the tutorial concurrently don't race).
+export const TUTORIAL_ROOM_ID = "tutorial";
+
+export async function ensureTutorialRoom(createdBy: string): Promise<void> {
+  // Local imports inside the function to avoid hoisting confusion with
+  // the rest of this file's top-level structure.
+  const db = (await import("./firebase")).getDbOrNull();
+  if (!db) return;
+  const fb = await import("firebase/firestore");
+  const { doc, runTransaction } = fb;
+  await runTransaction(db, async (tx) => {
+    const ref = doc(db, "rooms", TUTORIAL_ROOM_ID);
+    const existing = await tx.get(ref);
+    if (existing.exists()) return;
+    const now = Date.now();
+    tx.set(ref, {
+      name: "Tutorial",
+      slug: TUTORIAL_ROOM_ID,
+      createdBy,
+      createdAt: now,
+    });
+    // Seed the four default categories — same as createRoom().
+    const defaults = [
+      { key: "person_name", label: "Person Name", type: "string", builtin: true, order: 0 },
+      { key: "submitted_by", label: "Submitted by", type: "string", builtin: true, order: 1 },
+      { key: "submitted_at", label: "Submitted at", type: "string", builtin: true, order: 2 },
+      { key: "raw_drivel", label: "Drivel", type: "string", builtin: true, order: 3 },
+    ];
+    for (const cat of defaults) {
+      tx.set(
+        doc(db, "rooms", TUTORIAL_ROOM_ID, "categories", cat.key),
+        { ...cat, createdBy, createdAt: now },
+      );
+    }
+  });
+}
+
 // Room creation. The interesting bit is `createRoom`: it atomically writes
 // the room doc + four default category docs in a single transaction, so a
 // half-created room can never exist (no doc with no categories, no
@@ -16,10 +56,34 @@
 // lib/types.ts) to decide whether a column reads from entry.extracted
 // or from the entry's top-level fields.
 
-import { doc, runTransaction } from "firebase/firestore";
+import { doc, runTransaction, updateDoc } from "firebase/firestore";
 import { getDbOrNull } from "./firebase";
 import { slugify } from "./slugify";
 import { BUILTIN_KEYS } from "./types";
+
+// Soft-delete a room (sets deletedAt). Hides from rooms list; entries
+// + categories are untouched. Restore brings the whole room back as it
+// was.
+export async function deleteRoom(args: {
+  roomId: string;
+  deletedBy: string;
+}): Promise<void> {
+  const db = getDbOrNull();
+  if (!db) throw new Error("Firebase isn't configured.");
+  await updateDoc(doc(db, "rooms", args.roomId), {
+    deletedAt: Date.now(),
+    deletedBy: args.deletedBy,
+  });
+}
+
+export async function restoreRoom(args: { roomId: string }): Promise<void> {
+  const db = getDbOrNull();
+  if (!db) throw new Error("Firebase isn't configured.");
+  await updateDoc(doc(db, "rooms", args.roomId), {
+    deletedAt: null,
+    deletedBy: null,
+  });
+}
 
 type DefaultCategory = {
   key: string;

@@ -1,15 +1,18 @@
 "use client";
 
-// Live subscription to a room's categories (= columns).
-// Sorted by `order` ascending so the table's default column order is stable
-// across reloads.
+// Live subscription to a room's categories. Filters out soft-deleted
+// by default; trash view passes `includeDeleted: true`.
 
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { getDbOrNull } from "../firebase";
 import type { Category } from "../types";
 
-export function useCategories(roomId: string | undefined) {
+export function useCategories(
+  roomId: string | undefined,
+  opts?: { includeDeleted?: boolean },
+) {
+  const includeDeleted = !!opts?.includeDeleted;
   const [categories, setCategories] = useState<Category[]>([]);
   const [ready, setReady] = useState(false);
 
@@ -27,17 +30,18 @@ export function useCategories(roomId: string | undefined) {
     const unsub = onSnapshot(
       q,
       (snap) => {
+        const all = snap.docs.map(
+          (d) => ({ id: d.id, ...(d.data() as object) }) as Category,
+        );
         setCategories(
-          snap.docs.map(
-            (d) => ({ id: d.id, ...(d.data() as object) }) as Category,
-          ),
+          includeDeleted ? all : all.filter((c) => !c.deletedAt),
         );
         setReady(true);
       },
       () => setReady(true),
     );
     return unsub;
-  }, [roomId]);
+  }, [roomId, includeDeleted]);
 
   return { categories, ready };
 }

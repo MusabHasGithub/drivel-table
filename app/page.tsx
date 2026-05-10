@@ -13,16 +13,12 @@ import RoomSwitcher from "./components/RoomSwitcher";
 import TopBar from "./components/TopBar";
 import Tutorial from "./components/Tutorial";
 import { useIdentity } from "@/lib/hooks/useIdentity";
-import { useTutorial } from "@/lib/hooks/useTutorial";
 
 export default function Home() {
   const { name, setName, hydrated } = useIdentity();
-  const { done: tutorialDone, hydrated: tutorialHydrated, complete: completeTutorial } = useTutorial();
   const [editing, setEditing] = useState(false);
 
-  if (!hydrated || !tutorialHydrated) {
-    return null; // Avoid SSR/CSR mismatch flash; pre-hydration script handles theme.
-  }
+  if (!hydrated) return null;
 
   if (!name || editing) {
     return (
@@ -44,13 +40,10 @@ export default function Home() {
     <>
       <TopBar identity={name} onEditName={() => setEditing(true)} />
       <RoomSwitcher identity={name} />
-      {/* Unskippable on first run. Once `tutorialDone` is set in
-          localStorage it never appears again. Rendered AFTER the page so
-          the user can see what's behind it (the room switcher), but the
-          scrim + Escape-trap + body-scroll-lock prevents interaction. */}
-      {!tutorialDone && (
-        <Tutorial identity={name} onComplete={completeTutorial} />
-      )}
+      {/* The interactive tutorial reads its own state via useTutorial
+          and only renders if not done. It self-routes to the shared
+          tutorial room and detects each feature usage to advance. */}
+      <Tutorial />
     </>
   );
 }

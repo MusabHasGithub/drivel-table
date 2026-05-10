@@ -433,6 +433,46 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .btn--accent:hover { filter: brightness(1.05); }
 
+.btn--danger {
+  background: var(--error-fg);
+  color: white;
+}
+.btn--danger:hover { filter: brightness(1.05); }
+.btn--danger:disabled {
+  background: var(--mute-2);
+  cursor: not-allowed;
+}
+
+/* tiny icon button for inline trash / restore actions */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--mute-2);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+.icon-btn:hover {
+  color: var(--error-fg);
+  background: var(--error-bg);
+  border-color: var(--error-bg);
+}
+.icon-btn--restore:hover {
+  color: var(--ok-fg);
+  background: var(--paper-2);
+  border-color: var(--rule);
+}
+.icon-btn svg { width: 14px; height: 14px; }
+.entries tbody tr .row-actions {
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+.entries tbody tr:hover .row-actions { opacity: 1; }
+
 /* ============================================================
    NameGate
    ============================================================ */
@@ -782,6 +822,23 @@ table.entries {
 }
 .entries thead th .add-col:hover { color: var(--accent); }
 
+.header-cell__inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.header-cell__del {
+  width: 22px;
+  height: 22px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+.entries thead th.header-cell:hover .header-cell__del {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .entries tbody td {
   padding: 14px 14px;
   border-top: 1px solid var(--rule);
@@ -1113,6 +1170,105 @@ table.entries {
     text-align: center;
     padding: 10px 0;
   }
+}
+
+/* ============================================================
+   Interactive Tutorial — fixed bottom-right panel
+   ============================================================ */
+.tut {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  background: var(--card);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  padding: 20px 22px;
+  z-index: 60;
+  font-family: var(--sans);
+  animation: tutEnter 220ms cubic-bezier(.2, .9, .3, 1.2);
+}
+@keyframes tutEnter {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+.tut__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 10px;
+}
+.tut__dots {
+  display: inline-flex;
+  gap: 4px;
+}
+.tut__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--rule-strong);
+  transition: background 120ms ease, transform 120ms ease;
+}
+.tut__dot--past {
+  background: var(--mute-2);
+}
+.tut__dot--on {
+  background: var(--accent);
+  transform: scale(1.3);
+}
+.tut__title {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 22px;
+  letter-spacing: -0.005em;
+  margin: 0 0 8px;
+  color: var(--ink);
+}
+.tut__body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--mute);
+}
+.tut__body p { margin: 0; }
+.tut__body b { color: var(--ink); font-weight: 500; }
+.tut__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+.tut__waiting {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--extract-fg);
+}
+.tut__pulse {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@media (max-width: 560px) {
+  .tut {
+    bottom: 12px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    padding: 16px 18px;
+  }
+  .tut__title { font-size: 19px; }
 }
 
 /* small responsive */

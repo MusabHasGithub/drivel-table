@@ -17,11 +17,13 @@ import AddCategoryModal from "@/app/components/AddCategoryModal";
 import DrivelInput from "@/app/components/DrivelInput";
 import EntryTable from "@/app/components/EntryTable";
 import TopBar from "@/app/components/TopBar";
-import { runExtraction } from "@/lib/entries";
+import TrashModal from "@/app/components/TrashModal";
+import Tutorial from "@/app/components/Tutorial";
 import { useCategories } from "@/lib/hooks/useCategories";
 import { useEntries } from "@/lib/hooks/useEntries";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useRoom } from "@/lib/hooks/useRoom";
+import { runExtraction } from "@/lib/entries";
 import { METADATA_KEYS } from "@/lib/types";
 
 // `useSearchParams` requires a Suspense boundary in static-export mode.
@@ -42,6 +44,12 @@ function RoomPage() {
   const { categories, ready: categoriesReady } = useCategories(roomId);
   const { entries, ready: entriesReady } = useEntries(roomId);
   const [addColumnOpen, setAddColumnOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const { entries: trashEntries } = useEntries(roomId, { includeDeleted: true });
+  const { categories: trashCategories } = useCategories(roomId, { includeDeleted: true });
+  const trashCount =
+    trashEntries.filter((e) => !!e.deletedAt).length +
+    trashCategories.filter((c) => !!c.deletedAt).length;
 
   const submitterCount = useMemo(
     () => new Set(entries.map((e) => e.submittedBy)).size,
@@ -191,6 +199,13 @@ function RoomPage() {
               </span>
             </div>
             <div className="section-bar__filters">
+              <button
+                className="btn btn--ghost btn--small"
+                onClick={() => setTrashOpen(true)}
+                style={{ padding: "6px 8px" }}
+              >
+                Trash{trashCount > 0 ? ` · ${trashCount}` : ""}
+              </button>
               <button className="btn btn--quiet btn--small" onClick={() => setAddColumnOpen(true)}>+ Column</button>
             </div>
           </div>
@@ -219,6 +234,7 @@ function RoomPage() {
           ) : (
             <EntryTable
               roomId={roomId}
+              identity={identity}
               categories={categories}
               entries={entries}
               onAddColumn={() => setAddColumnOpen(true)}
@@ -231,8 +247,15 @@ function RoomPage() {
             roomId={roomId}
             identity={identity}
           />
+
+          <TrashModal
+            open={trashOpen}
+            onClose={() => setTrashOpen(false)}
+            roomId={roomId}
+          />
         </div>
       </main>
+      <Tutorial />
     </>
   );
 }

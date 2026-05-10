@@ -19,6 +19,40 @@ import { slugify } from "./slugify";
 import { BUILTIN_KEYS } from "./types";
 import type { CategorySpec, CategoryType } from "./types";
 
+// Soft-delete a category (sets deletedAt). The column disappears from
+// the table — but every entry's `extracted[key]` is kept untouched, so
+// restoring brings the column back populated. No re-extraction needed.
+export async function deleteCategory(args: {
+  roomId: string;
+  categoryId: string;
+  deletedBy: string;
+}): Promise<void> {
+  const db = getDbOrNull();
+  if (!db) throw new Error("Firebase isn't configured.");
+  await updateDoc(
+    doc(db, "rooms", args.roomId, "categories", args.categoryId),
+    {
+      deletedAt: Date.now(),
+      deletedBy: args.deletedBy,
+    },
+  );
+}
+
+export async function restoreCategory(args: {
+  roomId: string;
+  categoryId: string;
+}): Promise<void> {
+  const db = getDbOrNull();
+  if (!db) throw new Error("Firebase isn't configured.");
+  await updateDoc(
+    doc(db, "rooms", args.roomId, "categories", args.categoryId),
+    {
+      deletedAt: null,
+      deletedBy: null,
+    },
+  );
+}
+
 const RESERVED_KEYS = new Set<string>([
   BUILTIN_KEYS.PERSON_NAME,
   BUILTIN_KEYS.SUBMITTED_BY,

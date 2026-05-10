@@ -33,34 +33,30 @@ export const CategoryTypeSchema = z.enum(["string", "string_array"]);
 
 export const CategorySchema = z.object({
   id: z.string(),
-  // Stable machine name (= the doc id, = slugify(label)). Used as the key
-  // in entry.extracted, so renaming a column would break re-extraction —
-  // by design, columns are immutable in this MVP.
   key: z.string().min(1),
   label: z.string().min(1),
   description: z.string().optional(),
   type: CategoryTypeSchema,
-  // Marks the four default columns we seed on room creation. The UI uses
-  // this to disable delete; we don't enforce it in rules because the rules
-  // already block all client deletes anyway.
   builtin: z.boolean(),
-  // Source of truth for default order. The UI may override per-user via
-  // localStorage (see plan §5: "Drag-reorder column headers"), but the
-  // initial render uses this.
   order: z.number(),
   createdBy: z.string().min(1),
   createdAt: z.number(),
+  // Soft-delete timestamp. Null = active; number = unix-ms when deleted.
+  // Restoring just sets it back to null. Data is never wiped — the entry's
+  // extracted map keeps the column's values so restoring brings them back.
+  deletedAt: z.number().nullable().optional(),
+  deletedBy: z.string().nullable().optional(),
 });
 
 // --- Entry (= one row) -----------------------------------------------------
 export const EntrySchema = z.object({
   id: z.string(),
-  // The original drivel text — preserved forever, this is what makes
-  // re-extraction possible when a new column is added later.
   drivel: z.string().min(1),
   submittedBy: z.string().min(1),
   submittedAt: z.number(),
   extracted: ExtractedMapSchema,
+  deletedAt: z.number().nullable().optional(),
+  deletedBy: z.string().nullable().optional(),
 });
 
 // --- Room ------------------------------------------------------------------
@@ -70,6 +66,8 @@ export const RoomSchema = z.object({
   slug: z.string().min(1),
   createdBy: z.string().min(1),
   createdAt: z.number(),
+  deletedAt: z.number().nullable().optional(),
+  deletedBy: z.string().nullable().optional(),
 });
 
 // --- Category spec sent to Gemini ------------------------------------------
