@@ -200,13 +200,20 @@ function RoomPage() {
             </div>
             <div className="section-bar__filters">
               <button
+                data-tut="trash-button"
                 className="btn btn--ghost btn--small"
                 onClick={() => setTrashOpen(true)}
                 style={{ padding: "6px 8px" }}
               >
                 Trash{trashCount > 0 ? ` · ${trashCount}` : ""}
               </button>
-              <button className="btn btn--quiet btn--small" onClick={() => setAddColumnOpen(true)}>+ Column</button>
+              <button
+                data-tut="add-column"
+                className="btn btn--quiet btn--small"
+                onClick={() => setAddColumnOpen(true)}
+              >
+                + Column
+              </button>
             </div>
           </div>
 

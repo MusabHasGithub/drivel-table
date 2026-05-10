@@ -1,20 +1,34 @@
 "use client";
 
-// Interactive first-run tutorial. NOT a slide deck — it's a small fixed
-// panel at the bottom-right that walks the user through every feature
-// by detecting them DOING each thing (paste drivel → row appears →
-// add column → delete entry → restore from trash → toggle theme).
+// Interactive first-run tutorial — sv-nodes-style callout popups.
 //
-// Auto-creates and auto-routes the user to a shared "tutorial" room
-// (slug `tutorial`) so they don't have to make their own room first.
-// The tutorial room is shared across all users — by design. Mess in it
-// is fine; the tutorial step "delete + restore" naturally cleans up.
+// Each step optionally targets a `[data-tut="<id>"]` element somewhere
+// in the page; the callout positions itself next to that element with
+// a CSS-triangle arrow pointing back at it. Steps without a target
+// render centered.
 //
-// The user can't skip the tutorial: there's no close button, the panel
-// follows them across page navigations, and steps that require an action
-// auto-advance only when they complete the action.
+// Crucially the overlay uses `pointer-events: none` so clicks pass
+// through to the page underneath — only the callout card captures
+// pointer events. That's how the user can still hit "Delete entry"
+// in the confirm modal (which is layered above with its own scrim)
+// without the tutorial getting in the way.
+//
+// Auto-advance is unchanged — Firestore subscriptions on the shared
+// "tutorial" room detect each action (add entry, add column, edit
+// cell, delete, restore, theme toggle) and advance the step machine
+// automatically. Steps that can't be auto-detected cleanly (sort +
+// drag) use a manual Next button.
+//
+// Zero dim-layer, zero blocking. The popup just floats above the page,
+// pointed at whatever's relevant.
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useCategories } from "@/lib/hooks/useCategories";
 import { useEntries } from "@/lib/hooks/useEntries";
@@ -22,7 +36,26 @@ import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useTheme } from "@/lib/hooks/useTheme";
 import { useTutorial } from "@/lib/hooks/useTutorial";
 import { ensureTutorialRoom, TUTORIAL_ROOM_ID } from "@/lib/rooms";
-import { METADATA_KEYS } from "@/lib/types";
+
+type Side = "top" | "bottom" | "left" | "right";
+
+type Step =
+  | {
+      kind: "manual";
+      title: string;
+      body: ReactNode;
+      ctaLabel?: string;
+      target?: string;
+      side?: Side | "auto";
+    }
+  | {
+      kind: "auto";
+      title: string;
+      body: ReactNode;
+      detect: () => boolean;
+      target?: string;
+      side?: Side | "auto";
+    };
 
 export default function Tutorial() {
   const { name: identity, hydrated: identityHydrated } = useIdentity();
@@ -38,8 +71,6 @@ export default function Tutorial() {
   const searchParams = useSearchParams();
   const { theme } = useTheme();
 
-  // Subscribe to the tutorial room's data regardless of where the user
-  // is. Detection works even if they navigate away mid-step.
   const { entries: allEntries } = useEntries(TUTORIAL_ROOM_ID, {
     includeDeleted: true,
   });
@@ -47,10 +78,9 @@ export default function Tutorial() {
     includeDeleted: true,
   });
 
-  // Capture baseline counts at the moment we entered the current step,
-  // so detection is "did N+ rows / N+ columns appear since entering this
-  // step?" rather than "are there any at all?".
-  const [baseline, setBaseline] = useState(() => snapshot(allEntries, allCategories, theme));
+  const [baseline, setBaseline] = useState(() =>
+    snapshot(allEntries, allCategories, theme),
+  );
   const lastStepRef = useRef(step);
 
   useEffect(() => {
@@ -58,9 +88,6 @@ export default function Tutorial() {
       setBaseline(snapshot(allEntries, allCategories, theme));
       lastStepRef.current = step;
     }
-    // Also reset baseline when subscriptions hydrate (initial counts != 0
-    // for an existing room — without this the "Add an entry" step would
-    // auto-advance immediately just because there were already entries).
     if (allEntries.length > 0 && baseline.entryCount === 0 && step === 1) {
       setBaseline(snapshot(allEntries, allCategories, theme));
     }
@@ -70,22 +97,14 @@ export default function Tutorial() {
   const inTutorialRoom =
     pathname === "/rooms" && searchParams.get("id") === TUTORIAL_ROOM_ID;
 
-  // ====== Step machine ======
-  // Each step has: kind (auto vs manual), title, body, ctaLabel?,
-  // and a detector function for auto steps that returns true when the
-  // user has completed it.
-
   const STEPS = makeSteps({
-    identity: identity ?? "",
-    inTutorialRoom,
     baseline,
     entries: allEntries,
     categories: allCategories,
     theme,
   });
 
-  // On mount + whenever identity is set: ensure the tutorial room
-  // exists in Firestore.
+  // Ensure tutorial room exists.
   useEffect(() => {
     if (!identityHydrated || !identity || done) return;
     ensureTutorialRoom(identity).catch((err) => {
@@ -93,13 +112,9 @@ export default function Tutorial() {
     });
   }, [identity, identityHydrated, done]);
 
-  // Auto-route the user into the tutorial room when they're on the
-  // home page and tutorial isn't done yet. Without this they'd see the
-  // tutorial panel pointing at a room they aren't on.
+  // Auto-route into the tutorial room from step 1 onward.
   useEffect(() => {
     if (!identityHydrated || !tutorialHydrated || !identity || done) return;
-    // Welcome step (0): keep them on home until they click Next.
-    // Step 1 onwards: must be in the tutorial room.
     if (step >= 1 && !inTutorialRoom) {
       router.push(`/rooms/?id=${TUTORIAL_ROOM_ID}`);
     }
@@ -113,18 +128,15 @@ export default function Tutorial() {
     router,
   ]);
 
-  // Auto-advance for steps with a detector that's now satisfied.
+  // Auto-advance for satisfied detectors.
   useEffect(() => {
     if (done || !identityHydrated || !tutorialHydrated || !identity) return;
     const current = STEPS[step];
     if (!current) return;
     if (current.kind === "auto" && current.detect()) {
       const nextStep = step + 1;
-      if (nextStep >= STEPS.length) {
-        complete();
-      } else {
-        setStep(nextStep);
-      }
+      if (nextStep >= STEPS.length) complete();
+      else setStep(nextStep);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, allEntries, allCategories, theme, inTutorialRoom]);
@@ -134,71 +146,230 @@ export default function Tutorial() {
   const current = STEPS[step];
   if (!current) return null;
 
-  const total = STEPS.length;
+  return (
+    <Callout
+      key={step /* re-mount on step change to re-measure target */}
+      step={step}
+      total={STEPS.length}
+      stepDef={current}
+      onBack={() => {
+        if (step > 0) setStep(step - 1);
+      }}
+      onNext={() => {
+        const next = step + 1;
+        if (next >= STEPS.length) complete();
+        else setStep(next);
+      }}
+      canGoBack={step > 0}
+    />
+  );
+}
+
+function Callout({
+  step,
+  total,
+  stepDef,
+  onBack,
+  onNext,
+  canGoBack,
+}: {
+  step: number;
+  total: number;
+  stepDef: Step;
+  onBack: () => void;
+  onNext: () => void;
+  canGoBack: boolean;
+}) {
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const [viewport, setViewport] = useState({
+    w: typeof window === "undefined" ? 1200 : window.innerWidth,
+    h: typeof window === "undefined" ? 800 : window.innerHeight,
+  });
+
+  // Track viewport for clamping.
+  useEffect(() => {
+    const onResize = () =>
+      setViewport({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  // Track target rect (re-measure on resize / scroll). Same defensive
+  // pattern as sv-nodes — only setState when the rect meaningfully moves
+  // so we don't thrash React.
+  const target = stepDef.target;
+  useLayoutEffect(() => {
+    if (!target) {
+      setRect(null);
+      return;
+    }
+    let lastRect: DOMRect | null = null;
+    const update = () => {
+      const el = document.querySelector(target);
+      const next = el ? (el as HTMLElement).getBoundingClientRect() : null;
+      if (
+        next &&
+        lastRect &&
+        Math.abs(next.left - lastRect.left) < 1 &&
+        Math.abs(next.top - lastRect.top) < 1 &&
+        Math.abs(next.width - lastRect.width) < 1 &&
+        Math.abs(next.height - lastRect.height) < 1
+      ) {
+        return;
+      }
+      lastRect = next;
+      setRect(next);
+    };
+    update();
+    // Retry a few times if the element wasn't found yet (it might be
+    // mounted lazily on a route the user hasn't reached).
+    const retryHandle = window.setInterval(update, 250);
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.clearInterval(retryHandle);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [target]);
+
+  // Card position. Mirrors sv-nodes' geometry.
+  const CARD_W = Math.min(360, viewport.w - 24);
+  const CARD_H_EST = 200;
+  const GAP = 14;
+  let cardLeft = viewport.w / 2 - CARD_W / 2;
+  let cardTop = viewport.h - CARD_H_EST - 24;
+  let arrowSide: Side | null = null;
+
+  if (rect) {
+    const side =
+      stepDef.side && stepDef.side !== "auto"
+        ? (stepDef.side as Side)
+        : pickSide(rect, CARD_W, CARD_H_EST, viewport);
+    arrowSide = side;
+    if (side === "bottom") {
+      cardLeft = rect.left + rect.width / 2 - CARD_W / 2;
+      cardTop = rect.bottom + GAP;
+    } else if (side === "top") {
+      cardLeft = rect.left + rect.width / 2 - CARD_W / 2;
+      cardTop = rect.top - CARD_H_EST - GAP;
+    } else if (side === "right") {
+      cardLeft = rect.right + GAP;
+      cardTop = rect.top + rect.height / 2 - CARD_H_EST / 2;
+    } else {
+      cardLeft = rect.left - CARD_W - GAP;
+      cardTop = rect.top + rect.height / 2 - CARD_H_EST / 2;
+    }
+  }
+  cardLeft = clamp(cardLeft, 8, viewport.w - CARD_W - 8);
+  cardTop = clamp(cardTop, 8, viewport.h - CARD_H_EST - 8);
+
+  // Recompute arrow offset to keep it pointing at the target's center
+  // even after the card was clamped to the viewport edge.
+  let arrowOffsetX: number | undefined;
+  let arrowOffsetY: number | undefined;
+  if (rect && arrowSide) {
+    if (arrowSide === "top" || arrowSide === "bottom") {
+      const targetCenter = rect.left + rect.width / 2;
+      arrowOffsetX = clamp(targetCenter - cardLeft, 16, CARD_W - 16);
+    } else {
+      const targetCenter = rect.top + rect.height / 2;
+      arrowOffsetY = clamp(targetCenter - cardTop, 16, CARD_H_EST - 16);
+    }
+  }
 
   return (
-    <aside
-      className="tut"
-      role="dialog"
-      aria-label={`Tutorial step ${step + 1} of ${total}`}
-    >
-      <div className="tut__head">
-        <span className="eyebrow">
-          Tutorial · step {String(step + 1).padStart(2, "0")} of{" "}
-          {String(total).padStart(2, "0")}
-        </span>
-        <div className="tut__dots" aria-hidden="true">
-          {STEPS.map((_, i) => (
-            <span
-              key={i}
-              className={"tut__dot " + (i === step ? "tut__dot--on" : i < step ? "tut__dot--past" : "")}
-            />
-          ))}
-        </div>
-      </div>
-      <h3 className="tut__title">{current.title}</h3>
-      {current.body && <div className="tut__body">{current.body}</div>}
-
-      <div className="tut__foot">
-        {current.kind === "auto" ? (
-          <span className="tut__waiting">
-            <span className="tut__pulse" /> waiting for you to do it…
-          </span>
-        ) : (
-          <span style={{ flex: 1 }} />
-        )}
-        <button
-          type="button"
-          className="btn btn--ghost btn--small"
-          onClick={() => {
-            if (step > 0) setStep(step - 1);
+    <div className="tut-overlay">
+      {/* Optional: subtle ring around the target so the user's eye lands
+          there. NO dim layer, NO click blocking. */}
+      {rect && (
+        <div
+          className="tut-ring"
+          style={{
+            top: rect.top - 6,
+            left: rect.left - 6,
+            width: rect.width + 12,
+            height: rect.height + 12,
           }}
-          disabled={step === 0}
-        >
-          ← Back
-        </button>
-        {current.kind === "manual" && (
+        />
+      )}
+
+      <div
+        className="tut-card"
+        style={{ top: cardTop, left: cardLeft, width: CARD_W }}
+        role="dialog"
+        aria-label={`Tutorial step ${step + 1}`}
+      >
+        <div className="tut-card__head">
+          <span className="eyebrow">
+            Step {String(step + 1).padStart(2, "0")} ·{" "}
+            {String(total).padStart(2, "0")}
+          </span>
+          <div className="tut-card__dots" aria-hidden="true">
+            {Array.from({ length: total }).map((_, i) => (
+              <span
+                key={i}
+                className={
+                  "tut-card__dot " +
+                  (i === step
+                    ? "tut-card__dot--on"
+                    : i < step
+                      ? "tut-card__dot--past"
+                      : "")
+                }
+              />
+            ))}
+          </div>
+        </div>
+        <h3 className="tut-card__title">{stepDef.title}</h3>
+        <div className="tut-card__body">{stepDef.body}</div>
+
+        <div className="tut-card__foot">
+          {stepDef.kind === "auto" ? (
+            <span className="tut-card__waiting">
+              <span className="tut-card__pulse" /> waiting for you to do it…
+            </span>
+          ) : (
+            <span style={{ flex: 1 }} />
+          )}
           <button
             type="button"
-            className="btn btn--primary btn--small"
-            onClick={() => {
-              const next = step + 1;
-              if (next >= STEPS.length) complete();
-              else setStep(next);
-            }}
+            className="btn btn--ghost btn--small"
+            onClick={onBack}
+            disabled={!canGoBack}
           >
-            {current.ctaLabel ?? "Next →"}
+            ← Back
           </button>
+          {stepDef.kind === "manual" && (
+            <button
+              type="button"
+              className="btn btn--primary btn--small"
+              onClick={onNext}
+            >
+              {stepDef.ctaLabel ?? "Next →"}
+            </button>
+          )}
+        </div>
+
+        {arrowSide && (
+          <span
+            className={`tut-card__arrow tut-card__arrow--${arrowSide}`}
+            style={
+              arrowSide === "top" || arrowSide === "bottom"
+                ? { left: arrowOffsetX }
+                : { top: arrowOffsetY }
+            }
+          />
         )}
       </div>
-    </aside>
+    </div>
   );
 }
 
 type Snapshot = {
-  entryCount: number; // not-deleted
-  totalEntryCount: number; // including deleted
-  categoryCount: number; // not-deleted
+  entryCount: number;
+  totalEntryCount: number;
+  categoryCount: number;
   totalCategoryCount: number;
   deletedEntryCount: number;
   theme: string;
@@ -219,13 +390,31 @@ function snapshot(
   };
 }
 
-type Step =
-  | { kind: "manual"; title: string; body: ReactNode; ctaLabel?: string }
-  | { kind: "auto"; title: string; body: ReactNode; detect: () => boolean };
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function pickSide(
+  rect: DOMRect,
+  cardW: number,
+  cardH: number,
+  vp: { w: number; h: number },
+): Side {
+  const room = {
+    top: rect.top,
+    bottom: vp.h - rect.bottom,
+    left: rect.left,
+    right: vp.w - rect.right,
+  };
+  if (room.bottom >= cardH + 24) return "bottom";
+  if (room.right >= cardW + 24) return "right";
+  if (room.top >= cardH + 24) return "top";
+  if (room.left >= cardW + 24) return "left";
+  // Fallback: whichever side has the most room.
+  return (Object.entries(room).sort((a, b) => b[1] - a[1])[0][0] as Side);
+}
 
 function makeSteps(args: {
-  identity: string;
-  inTutorialRoom: boolean;
   baseline: Snapshot;
   entries: {
     submittedAt: number;
@@ -243,152 +432,141 @@ function makeSteps(args: {
   )[0];
 
   return [
-    // Step 0 — welcome / context. Manual.
     {
       kind: "manual",
       title: "Hi. Quick walkthrough.",
       body: (
         <p style={{ margin: 0 }}>
           I&apos;ll walk you through every feature in about two minutes.
-          You&apos;ll be doing the actions yourself — just follow the steps.
-          When you click Next I&apos;ll drop you in a shared{" "}
-          <em style={{ fontStyle: "italic" }}>tutorial</em> room you can
-          mess around in.
+          You&apos;ll be doing the actions — just follow each callout.
+          Click Next and I&apos;ll drop you in a shared{" "}
+          <em style={{ fontStyle: "italic" }}>tutorial</em> room.
         </p>
       ),
       ctaLabel: "Take me there →",
     },
-    // Step 1 — paste drivel.
     {
       kind: "auto",
-      title: "Paste some drivel and click Add.",
+      title: "Paste drivel and click Add.",
       body: (
         <p style={{ margin: 0 }}>
-          Type a sentence or two about a person — a real one or made up.
-          Click <b>Add entry</b>. A row will appear with the cells
-          showing &ldquo;extracting…&rdquo;.
+          Type a sentence about a person — real or made up. Click{" "}
+          <b>Add entry</b>. A row appears with cells in
+          &ldquo;extracting…&rdquo;.
         </p>
       ),
+      target: '[data-tut="drivel-input"]',
       detect: () => baseline.entryCount + 1 <= activeEntries.length,
     },
-    // Step 2 — wait for extraction.
     {
       kind: "auto",
       title: "Watch the cells fill in.",
       body: (
         <p style={{ margin: 0 }}>
-          That&apos;s Gemini reading your text. The Person Name should
-          land in a couple of seconds. Wait for it.
+          That&apos;s Gemini reading your text. Person Name lands in a
+          couple of seconds.
         </p>
       ),
+      target: '[data-tut="entries-table"]',
       detect: () => {
         if (!newestEntry) return false;
         const c = newestEntry.extracted?.["person_name"];
         return c?.status === "ok";
       },
     },
-    // Step 3 — add a column.
     {
       kind: "auto",
       title: "Add a new column.",
       body: (
         <p style={{ margin: 0 }}>
-          Click <b>+ Column</b> in the section bar. Try{" "}
+          Click <b>+ Column</b>. Try{" "}
           <code style={{ fontFamily: "var(--mono)", fontSize: 12 }}>Hobby</code>{" "}
           or{" "}
           <code style={{ fontFamily: "var(--mono)", fontSize: 12 }}>Job</code>.
-          Submit. The column will appear and back-fill all existing rows.
+          Existing rows back-fill automatically.
         </p>
       ),
+      target: '[data-tut="add-column"]',
       detect: () => baseline.categoryCount < activeCategories.length,
     },
-    // Step 4a — correct a cell. Auto-detected when any extracted cell
-    // gets a user override (editedAt set on any entry's extracted map).
     {
       kind: "auto",
       title: "Correct a cell.",
       body: (
         <p style={{ margin: 0 }}>
-          The LLM gets things wrong sometimes. Click any cell value to
-          edit it inline — Enter saves, Escape cancels. Try editing one
-          cell to whatever you want.
+          Click any value in the table to override it. Enter saves,
+          Escape cancels. The LLM gets things wrong sometimes — fix
+          them.
         </p>
       ),
+      target: '[data-tut="entries-table"]',
       detect: () =>
         entries.some((e) =>
           Object.values(e.extracted ?? {}).some(
-            (cell) => !!(cell as { editedAt?: number }).editedAt,
+            (c) => !!(c as { editedAt?: number }).editedAt,
           ),
         ),
     },
-    // Step 4b — try sort + drag.
     {
       kind: "manual",
       title: "Sort and reorder columns.",
       body: (
         <p style={{ margin: 0 }}>
-          Click any column header to cycle through sort. Drag a header
-          sideways to reorder it (each person&apos;s order is local — it
-          doesn&apos;t change anyone else&apos;s view). Click Next when
-          you&apos;ve tried both.
+          Click any column header to sort. Drag a header sideways to
+          reorder. Each person&apos;s order is local — it doesn&apos;t
+          change anyone else&apos;s view. Click Next when you&apos;ve
+          tried both.
         </p>
       ),
+      target: '[data-tut="entries-table"]',
       ctaLabel: "Tried it →",
     },
-    // Step 5 — delete an entry. Detected when the deleted-count goes up.
     {
       kind: "auto",
       title: "Delete an entry.",
       body: (
         <p style={{ margin: 0 }}>
           Hover any row — a small trash icon appears at the right end.
-          Click it. A confirm dialog asks if you&apos;re sure. Click{" "}
-          <b>Delete entry</b>. Nothing is wiped — it just hides.
+          Click it, then confirm. Nothing is wiped; it just hides.
         </p>
       ),
+      target: '[data-tut="entries-table"]',
       detect: () =>
         entries.filter((e) => !!e.deletedAt).length >
         baseline.deletedEntryCount,
     },
-    // Step 6 — restore from trash.
     {
       kind: "auto",
-      title: "Restore it from Trash.",
+      title: "Restore from Trash.",
       body: (
         <p style={{ margin: 0 }}>
-          Click <b>Trash</b> in the section bar. Find the entry you just
-          deleted and click <b>Restore</b>. It pops back into the table
-          exactly as it was.
+          Open Trash, find the deleted entry, click <b>Restore</b>.
         </p>
       ),
-      detect: () => {
-        // Detected when the deleted-count drops below the baseline
-        // captured at the start of this step (which itself jumped one
-        // up after the user deleted in step 5).
-        return entries.filter((e) => !!e.deletedAt).length < baseline.deletedEntryCount + 1;
-      },
+      target: '[data-tut="trash-button"]',
+      detect: () =>
+        entries.filter((e) => !!e.deletedAt).length <
+        baseline.deletedEntryCount + 1,
     },
-    // Step 7 — toggle theme.
     {
       kind: "auto",
       title: "Toggle dark mode.",
       body: (
         <p style={{ margin: 0 }}>
-          Click the sun/moon icon in the top bar. Both modes look great
-          (we may be biased). It&apos;ll remember your pick.
+          Click the sun/moon up top. It&apos;ll remember your pick.
         </p>
       ),
+      target: '[data-tut="theme-toggle"]',
       detect: () => theme !== baseline.theme,
     },
-    // Step 8 — done.
     {
       kind: "manual",
       title: "You’re set.",
       body: (
         <p style={{ margin: 0 }}>
-          That&apos;s every feature. Head back to <b>All rooms</b> to
-          create your own — or stay here and add more drivel; the
-          tutorial room is shared with everyone, so others may pop in.
+          Every feature, covered. Head back to <b>All rooms</b> to
+          create your own — or keep adding drivel here. The tutorial
+          room is shared with everyone.
         </p>
       ),
       ctaLabel: "Done — let me out →",

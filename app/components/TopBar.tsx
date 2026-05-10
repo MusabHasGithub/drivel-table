@@ -27,6 +27,7 @@ export default function TopBar({ identity, onEditName, hideIdentity }: Props) {
         {/* hydrated-gate the icon swap so SSR/CSR agree on the markup */}
         <button
           type="button"
+          data-tut="theme-toggle"
           className="theme-toggle tip"
           data-tip={
             !hydrated

@@ -62,7 +62,7 @@ export default function DrivelInput({
   }
 
   return (
-    <form className="composer" onSubmit={handleSubmit}>
+    <form className="composer" onSubmit={handleSubmit} data-tut="drivel-input">
       <div className="composer__head">
         <span className="composer__title">Add an entry</span>
         <span className="composer__hint">

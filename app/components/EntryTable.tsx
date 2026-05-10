@@ -136,7 +136,7 @@ export default function EntryTable({
 
   return (
     <>
-      <div className="table-wrap">
+      <div className="table-wrap" data-tut="entries-table">
         <div className="table-scroll">
           <DndContext
             sensors={sensors}

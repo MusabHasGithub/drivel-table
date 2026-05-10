@@ -1206,77 +1206,99 @@ table.entries {
 }
 
 /* ============================================================
-   Interactive Tutorial — fixed bottom-right panel
+   Interactive Tutorial — sv-nodes-style callout popup
+   - Fixed overlay layer with pointer-events:none so clicks pass
+     through to the page underneath. Only the card itself captures
+     events. The dim/blocking layer is intentionally absent — that
+     was breaking clicks during steps that opened modals.
+   - Card positions itself next to a [data-tut="..."] target with a
+     CSS-triangle arrow pointing at it. No-target steps render at
+     the screen center.
+   - z-index 30: above topbar (20), BELOW scrim/modal (50) so confirm
+     dialogs always layer over the tutorial.
    ============================================================ */
-.tut {
+.tut-overlay {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
-  width: 380px;
-  max-width: calc(100vw - 32px);
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.tut-ring {
+  position: absolute;
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  transition: top 200ms ease, left 200ms ease, width 200ms ease, height 200ms ease;
+  pointer-events: none;
+}
+
+.tut-card {
+  position: absolute;
   background: var(--card);
   border: 1px solid var(--rule-strong);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-pop);
-  padding: 20px 22px;
-  z-index: 60;
+  padding: 18px 20px;
+  pointer-events: auto;
   font-family: var(--sans);
   animation: tutEnter 220ms cubic-bezier(.2, .9, .3, 1.2);
 }
 @keyframes tutEnter {
-  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  from { opacity: 0; transform: scale(0.97); }
   to   { opacity: 1; transform: none; }
 }
-.tut__head {
+
+.tut-card__head {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
   gap: 10px;
 }
-.tut__dots {
+.tut-card__dots {
   display: inline-flex;
   gap: 4px;
 }
-.tut__dot {
+.tut-card__dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: var(--rule-strong);
   transition: background 120ms ease, transform 120ms ease;
 }
-.tut__dot--past {
-  background: var(--mute-2);
-}
-.tut__dot--on {
+.tut-card__dot--past { background: var(--mute-2); }
+.tut-card__dot--on {
   background: var(--accent);
   transform: scale(1.3);
 }
-.tut__title {
+
+.tut-card__title {
   font-family: var(--serif);
   font-style: italic;
   font-weight: 400;
   font-size: 22px;
   letter-spacing: -0.005em;
-  margin: 0 0 8px;
+  margin: 0 0 6px;
   color: var(--ink);
 }
-.tut__body {
+.tut-card__body {
   font-size: 13px;
   line-height: 1.55;
   color: var(--mute);
 }
-.tut__body p { margin: 0; }
-.tut__body b { color: var(--ink); font-weight: 500; }
-.tut__foot {
+.tut-card__body p { margin: 0; }
+.tut-card__body b { color: var(--ink); font-weight: 500; }
+
+.tut-card__foot {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 16px;
-  padding-top: 14px;
+  margin-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid var(--rule);
 }
-.tut__waiting {
+.tut-card__waiting {
   flex: 1;
   display: inline-flex;
   align-items: center;
@@ -1284,7 +1306,7 @@ table.entries {
   font-size: 12px;
   color: var(--extract-fg);
 }
-.tut__pulse {
+.tut-card__pulse {
   display: inline-block;
   width: 6px;
   height: 6px;
@@ -1293,15 +1315,49 @@ table.entries {
   animation: pulse 1.2s ease-in-out infinite;
 }
 
+/* Triangle arrow on the card pointing at the target. */
+.tut-card__arrow {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.tut-card__arrow--top {
+  bottom: -8px;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid var(--card);
+  transform: translateX(-8px);
+  filter: drop-shadow(0 1px 0 var(--rule-strong));
+}
+.tut-card__arrow--bottom {
+  top: -8px;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-bottom: 8px solid var(--card);
+  transform: translateX(-8px);
+  filter: drop-shadow(0 -1px 0 var(--rule-strong));
+}
+.tut-card__arrow--left {
+  right: -8px;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 8px solid var(--card);
+  transform: translateY(-8px);
+  filter: drop-shadow(1px 0 0 var(--rule-strong));
+}
+.tut-card__arrow--right {
+  left: -8px;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-right: 8px solid var(--card);
+  transform: translateY(-8px);
+  filter: drop-shadow(-1px 0 0 var(--rule-strong));
+}
+
 @media (max-width: 560px) {
-  .tut {
-    bottom: 12px;
-    right: 12px;
-    left: 12px;
-    width: auto;
-    padding: 16px 18px;
-  }
-  .tut__title { font-size: 19px; }
+  .tut-card { padding: 14px 16px; }
+  .tut-card__title { font-size: 19px; }
 }
 
 /* small responsive */
