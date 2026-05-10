@@ -5,6 +5,7 @@
 
 import Link from "next/link";
 import { useTheme } from "@/lib/hooks/useTheme";
+import { useTutorial } from "@/lib/hooks/useTutorial";
 
 type Props = {
   identity: string | null;
@@ -15,6 +16,10 @@ type Props = {
 
 export default function TopBar({ identity, onEditName, hideIdentity }: Props) {
   const { theme, toggle, hydrated } = useTheme();
+  // Re-launch the tutorial. Mirrors sv-nodes' "Help / replay tour" button.
+  // reset() clears the done flag in localStorage so the Tutorial component
+  // (mounted globally) starts rendering again at step 0.
+  const { reset: resetTutorial } = useTutorial();
 
   return (
     <header className="topbar">
@@ -24,6 +29,28 @@ export default function TopBar({ identity, onEditName, hideIdentity }: Props) {
         <span className="brand__lite">Lite · drivel table</span>
       </Link>
       <div className="topbar__right">
+        {/* Help / replay tour. Same affordance as sv-nodes' HelpCircle. */}
+        <button
+          type="button"
+          className="theme-toggle tip"
+          data-tip="Replay tutorial"
+          onClick={resetTutorial}
+          aria-label="Replay tutorial"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+        </button>
         {/* hydrated-gate the icon swap so SSR/CSR agree on the markup */}
         <button
           type="button"

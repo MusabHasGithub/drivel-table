@@ -157,6 +157,7 @@ export default function Tutorial() {
         if (next >= STEPS.length) complete();
         else setStep(next);
       }}
+      onSkip={complete}
       canGoBack={step > 0}
     />
   );
@@ -168,6 +169,7 @@ function Callout({
   stepDef,
   onBack,
   onNext,
+  onSkip,
   canGoBack,
 }: {
   step: number;
@@ -175,6 +177,7 @@ function Callout({
   stepDef: Step;
   onBack: () => void;
   onNext: () => void;
+  onSkip: () => void;
   canGoBack: boolean;
 }) {
   const [rect, setRect] = useState<DOMRect | null>(null);
@@ -297,6 +300,29 @@ function Callout({
         role="dialog"
         aria-label={`Tutorial step ${step + 1}`}
       >
+        {/* Skip "X" — top-right of card. Mirrors the sv-nodes pattern.
+            Always available; ends the tutorial and marks it done. */}
+        <button
+          type="button"
+          className="tut-card__skip"
+          onClick={onSkip}
+          aria-label="Skip tutorial"
+          title="Skip tutorial"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+
         <div className="tut-card__head">
           <span className="eyebrow">
             Step {String(step + 1).padStart(2, "0")} ·{" "}
