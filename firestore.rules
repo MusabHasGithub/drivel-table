@@ -57,25 +57,19 @@ service cloud.firestore {
         && request.resource.data.createdBy.size() > 0;
     }
 
-    // The fields that may NOT change on an update vs. the existing doc.
-    // Used to gate "extraction-only" and "delete-toggle-only" updates so
-    // the immutable parts of an entry (drivel, submitter, timestamp) stay
-    // immutable.
-    function entryImmutableFieldsUnchanged() {
-      return request.resource.data.submittedBy == resource.data.submittedBy
-        && request.resource.data.submittedAt == resource.data.submittedAt
-        && request.resource.data.drivel == resource.data.drivel;
-    }
-
-    // Allow updates that only change the `extracted` map OR toggle
-    // `deletedAt` / `deletedBy`. The other fields stay as-is.
+    // Allow updates that change `extracted`, `deletedAt`/`deletedBy`,
+    // or the raw `drivel` text (the user can correct typos / re-word
+    // their original note). The audit fields stay immutable so the
+    // submitted-by/submitted-at columns remain truthful records.
     function entryUpdateAllowed() {
-      return entryImmutableFieldsUnchanged();
+      return request.resource.data.submittedBy == resource.data.submittedBy
+        && request.resource.data.submittedAt == resource.data.submittedAt;
     }
 
+    // Rooms can be renamed (name editable) but the slug is the URL
+    // identifier and never changes; createdBy/createdAt stay as audit.
     function roomUpdateAllowed() {
-      return request.resource.data.name == resource.data.name
-        && request.resource.data.slug == resource.data.slug
+      return request.resource.data.slug == resource.data.slug
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.createdAt == resource.data.createdAt;
     }

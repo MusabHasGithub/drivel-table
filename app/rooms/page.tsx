@@ -10,7 +10,7 @@
 // (No server-side route handlers in this build — see the GH-Pages refactor
 // notes in next.config.ts.)
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import AddCategoryModal from "@/app/components/AddCategoryModal";
@@ -24,6 +24,7 @@ import { useEntries } from "@/lib/hooks/useEntries";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useRoom } from "@/lib/hooks/useRoom";
 import { runExtraction } from "@/lib/entries";
+import { renameRoom } from "@/lib/rooms";
 import { METADATA_KEYS } from "@/lib/types";
 
 // `useSearchParams` requires a Suspense boundary in static-export mode.
@@ -146,9 +147,16 @@ function RoomPage() {
               <Link href="/" className="room-head__back">
                 <span>←</span> All rooms
               </Link>
-              <h1 className="h-room" style={{ marginTop: 8 }}>
-                {roomReady && room ? room.name : "Loading…"}
-              </h1>
+              {roomReady && room ? (
+                <EditableRoomName
+                  roomId={roomId}
+                  currentName={room.name}
+                />
+              ) : (
+                <h1 className="h-room" style={{ marginTop: 8 }}>
+                  Loading…
+                </h1>
+              )}
               <p className="lede" style={{ marginTop: 8, fontSize: 14 }}>
                 Anyone with the link can add drivel. Columns are shared; the extractor fills new ones for old rows automatically.
               </p>
@@ -264,6 +272,100 @@ function RoomPage() {
       </main>
       <Tutorial />
     </>
+  );
+}
+
+// Click-to-edit room name. Same UX shape as the cell editor: click the
+// title, swap to an italic-serif input prefilled with the current name,
+// Enter or blur saves, Escape cancels. Slug stays the same so URLs
+// don't break.
+function EditableRoomName({
+  roomId,
+  currentName,
+}: {
+  roomId: string;
+  currentName: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(currentName);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function start() {
+    setDraft(currentName);
+    setEditing(true);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+  }
+
+  async function save() {
+    if (saving) return;
+    const trimmed = draft.trim();
+    if (trimmed.length === 0 || trimmed === currentName) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      await renameRoom({ roomId, name: trimmed });
+    } catch (err) {
+      console.error("[EditableRoomName] save failed", err);
+    } finally {
+      setSaving(false);
+      setEditing(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        className="h-room cell-edit"
+        style={{
+          marginTop: 8,
+          fontFamily: "var(--serif)",
+          fontStyle: "italic",
+          fontSize: 40,
+          padding: "0 8px",
+          width: "100%",
+          minWidth: 200,
+        }}
+        value={draft}
+        disabled={saving}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            save();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            setEditing(false);
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <h1
+      className="h-room cell-editable"
+      style={{ marginTop: 8 }}
+      onClick={start}
+      title="Click to rename"
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          start();
+        }
+      }}
+    >
+      {currentName}
+    </h1>
   );
 }
 

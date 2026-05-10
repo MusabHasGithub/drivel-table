@@ -47,6 +47,27 @@ export async function updateExtractedValue(args: {
   });
 }
 
+// Edit the raw drivel text on an existing entry — the user fixing a
+// typo or rewording their original note. Existing extracted cells are
+// untouched (they don't re-run automatically), but a future re-extraction
+// over a newly-added column will use the corrected drivel. Empty input
+// is rejected so the source of truth never goes blank.
+export async function updateEntryDrivel(args: {
+  roomId: string;
+  entryId: string;
+  drivel: string;
+}): Promise<void> {
+  const db = getDbOrNull();
+  if (!db) throw new Error("Firebase isn't configured.");
+  const trimmed = args.drivel.trim();
+  if (trimmed.length === 0) {
+    throw new Error("Drivel can't be empty.");
+  }
+  await updateDoc(doc(db, "rooms", args.roomId, "entries", args.entryId), {
+    drivel: trimmed,
+  });
+}
+
 // Soft-delete an entry (sets deletedAt timestamp). The entry is hidden
 // from the table by default but its drivel + extracted map are kept
 // untouched so restoring brings it back exactly as it was.

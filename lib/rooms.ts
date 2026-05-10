@@ -85,6 +85,21 @@ export async function restoreRoom(args: { roomId: string }): Promise<void> {
   });
 }
 
+// Rename a room. Only `name` changes — slug stays as the URL identifier
+// so existing room links don't break. Empty/whitespace names are rejected.
+export async function renameRoom(args: {
+  roomId: string;
+  name: string;
+}): Promise<void> {
+  const db = getDbOrNull();
+  if (!db) throw new Error("Firebase isn't configured.");
+  const trimmed = args.name.trim();
+  if (trimmed.length === 0) {
+    throw new Error("Room name can't be empty.");
+  }
+  await updateDoc(doc(db, "rooms", args.roomId), { name: trimmed });
+}
+
 type DefaultCategory = {
   key: string;
   label: string;

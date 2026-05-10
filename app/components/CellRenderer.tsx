@@ -19,7 +19,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Category, Entry, ExtractedCell } from "@/lib/types";
 import { BUILTIN_KEYS, METADATA_KEYS } from "@/lib/types";
-import { updateExtractedValue } from "@/lib/entries";
+import { updateEntryDrivel, updateExtractedValue } from "@/lib/entries";
 
 type Props = {
   roomId: string;
@@ -34,6 +34,12 @@ export default function CellRenderer({
   entry,
   category,
 }: Props) {
+  if (category.key === BUILTIN_KEYS.RAW_DRIVEL) {
+    // The raw drivel column is editable too — corrects typos / re-words
+    // the original note. submitted_by + submitted_at stay read-only
+    // since they're audit fields.
+    return <EditableDrivelCell roomId={roomId} entry={entry} />;
+  }
   if (METADATA_KEYS.has(category.key)) {
     return <MetadataCell entry={entry} categoryKey={category.key} />;
   }
@@ -45,6 +51,106 @@ export default function CellRenderer({
       cell={entry.extracted?.[category.key]}
       category={category}
     />
+  );
+}
+
+function EditableDrivelCell({
+  roomId,
+  entry,
+}: {
+  roomId: string;
+  entry: Entry;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(entry.drivel);
+  const [saving, setSaving] = useState(false);
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      requestAnimationFrame(() => {
+        ref.current?.focus();
+        ref.current?.select();
+      });
+    }
+  }, [editing]);
+
+  function start() {
+    if (saving) return;
+    setDraft(entry.drivel);
+    setEditing(true);
+  }
+
+  async function save() {
+    if (saving) return;
+    const trimmed = draft.trim();
+    if (trimmed.length === 0 || trimmed === entry.drivel) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateEntryDrivel({
+        roomId,
+        entryId: entry.id,
+        drivel: trimmed,
+      });
+    } catch (err) {
+      console.error("[EditableDrivelCell] save failed", err);
+    } finally {
+      setSaving(false);
+      setEditing(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <textarea
+        ref={ref}
+        className="cell-edit"
+        style={{
+          minWidth: 240,
+          minHeight: 80,
+          fontSize: 13,
+          lineHeight: 1.5,
+          color: "var(--ink)",
+          resize: "vertical",
+        }}
+        value={draft}
+        disabled={saving}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          // Cmd/Ctrl + Enter saves; plain Enter inserts newline since
+          // drivel is multi-line.
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            save();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            setEditing(false);
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <span
+      className="cell-drivel cell-editable"
+      title={entry.drivel + "\n\nClick to edit (⌘/Ctrl+Enter to save)"}
+      onClick={start}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          start();
+        }
+      }}
+    >
+      {entry.drivel}
+    </span>
   );
 }
 
