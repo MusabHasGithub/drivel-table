@@ -9,7 +9,11 @@
 // /api/reextract-room to fill the cells over existing entries.
 
 import { useEffect, useState, type FormEvent } from "react";
-import { addCategory, CategoryAddError } from "@/lib/categories";
+import {
+  addCategory,
+  CategoryAddError,
+  reextractRoomCategory,
+} from "@/lib/categories";
 import type { CategoryType } from "@/lib/types";
 
 type Props = {
@@ -56,12 +60,18 @@ export default function AddCategoryModal({
         type,
         createdBy: identity,
       });
-      void fetch("/api/reextract-room", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomId, categoryKey: key }),
+      // Run the per-row re-extraction in the browser. Fire-and-forget;
+      // the entries snapshot listener picks up each cell as it lands.
+      void reextractRoomCategory({
+        roomId,
+        category: {
+          key,
+          label,
+          description: hint || undefined,
+          type,
+        },
       }).catch((err) => {
-        console.error("[AddCategoryModal] /api/reextract-room failed", err);
+        console.error("[AddCategoryModal] reextractRoomCategory failed", err);
       });
       onClose();
     } catch (err) {

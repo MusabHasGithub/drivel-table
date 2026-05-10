@@ -1,16 +1,27 @@
 "use client";
 
-// Entry creation (no Gemini yet — that wiring lands in the next step).
+// Entry creation, with client-side Gemini extraction.
 //
-// Strategy: write the entry doc with extracted = { person_name: { status:
-// "extracting" } } so the table can immediately render a row with a
-// spinner in the Person Name cell. The /api/extract route then fills the
-// extracted map via firebase-admin (bypassing rules) and the snapshot
-// listener flips the cell from extracting → ok.
+// Strategy: write the entry doc with extracted = { <key>: { status:
+// "extracting" } } so the table immediately shows a row with spinner
+// cells. Then call Gemini in the browser to fill the extracted map
+// and updateDoc the result back to Firestore.
+//
+// (The server-side version of this used /api/extract + firebase-admin
+// to bypass rules. For static GH-Pages hosting we do the writes from
+// the browser directly — see firestore.rules for the relaxed rule that
+// allows entry updates.)
 
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  doc,
+  serverTimestamp,
+  updateDoc,
+} from "firebase/firestore";
 import { getDbOrNull } from "./firebase";
-import type { Category, ExtractedMap } from "./types";
+import { extractFieldsClient } from "./gemini-client";
+import type { Category, CategorySpec, ExtractedMap } from "./types";
 import { METADATA_KEYS } from "./types";
 
 export class EntrySubmitError extends Error {
@@ -21,13 +32,13 @@ export class EntrySubmitError extends Error {
   }
 }
 
-// Returns the new entry's id. Throws EntrySubmitError on the handled
-// failure modes; lets unexpected Firestore errors bubble.
+// Returns the new entry id. Resolves once the row is written; the
+// extraction job runs separately (`runExtraction`) and updates cells
+// asynchronously.
 export async function submitEntry(args: {
   roomId: string;
   drivel: string;
   submittedBy: string;
-  /** All categories currently on the room — used to seed `extracting` cells. */
   categories: Category[];
 }): Promise<string> {
   const db = getDbOrNull();
@@ -51,8 +62,6 @@ export async function submitEntry(args: {
     );
   }
 
-  // Seed every non-metadata category as "extracting"; metadata columns
-  // render directly from entry fields so they don't appear in this map.
   const extracted: ExtractedMap = {};
   for (const cat of args.categories) {
     if (METADATA_KEYS.has(cat.key)) continue;
@@ -64,9 +73,64 @@ export async function submitEntry(args: {
     submittedBy,
     submittedAt: Date.now(),
     extracted,
-    // serverTimestamp is a nice-to-have audit field; ignore in app code.
     _serverWrittenAt: serverTimestamp(),
   });
 
   return docRef.id;
+}
+
+// Run Gemini against a freshly-submitted entry's drivel and write the
+// extracted values back per cell. Errors are stamped as status: "error"
+// at the cell level; one bad cell shouldn't kill the others.
+export async function runExtraction(args: {
+  roomId: string;
+  entryId: string;
+  drivel: string;
+  categories: Category[];
+}): Promise<void> {
+  const db = getDbOrNull();
+  if (!db) return;
+
+  const extractable = args.categories.filter(
+    (c) => !METADATA_KEYS.has(c.key),
+  );
+  if (extractable.length === 0) return;
+
+  const specs: CategorySpec[] = extractable.map((c) => ({
+    key: c.key,
+    label: c.label,
+    description: c.description,
+    type: c.type,
+  }));
+
+  const ref = doc(db, "rooms", args.roomId, "entries", args.entryId);
+
+  let extractedMap: Record<string, string | string[] | null>;
+  try {
+    extractedMap = await extractFieldsClient(args.drivel, specs);
+  } catch (err) {
+    // Mark every cell as errored so the row stays visible.
+    const writes: Record<string, unknown> = {};
+    for (const c of extractable) {
+      writes[`extracted.${c.key}`] = {
+        value: null,
+        status: "error",
+        errorMessage: err instanceof Error ? err.message : String(err),
+      };
+    }
+    await updateDoc(ref, writes);
+    return;
+  }
+
+  const writes: Record<string, unknown> = {};
+  const now = Date.now();
+  for (const c of extractable) {
+    const value = extractedMap[c.key] ?? null;
+    writes[`extracted.${c.key}`] = {
+      value,
+      status: "ok",
+      extractedAt: now,
+    };
+  }
+  await updateDoc(ref, writes);
 }

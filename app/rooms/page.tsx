@@ -1,29 +1,41 @@
 "use client";
 
-// One room's table view. Visual: per the Lightbook Lite design — back
-// link + italic serif room name + lede + stats panel (entries / columns
-// / people) on the right, then composer, then section bar with "+ Column",
-// then table.
+// One room's table view. Static-export-friendly: the room id arrives via
+// `?id=…` query string (since static export can't pre-render a dynamic
+// `[roomId]` segment without knowing the values at build time).
 //
-// Behavior unchanged: hooks subscribe to room/categories/entries; submitting
-// drivel triggers /api/extract; adding a category triggers /api/reextract-room.
+// Pipeline now runs entirely in the browser:
+//   - submitEntry → addDoc → runExtraction → updateDoc per cell
+//   - addCategory → reextractRoomCategory → updateDoc per row, per cell
+// (No server-side route handlers in this build — see the GH-Pages refactor
+// notes in next.config.ts.)
 
-import { use as useResource, useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import AddCategoryModal from "@/app/components/AddCategoryModal";
 import DrivelInput from "@/app/components/DrivelInput";
 import EntryTable from "@/app/components/EntryTable";
 import TopBar from "@/app/components/TopBar";
+import { runExtraction } from "@/lib/entries";
 import { useCategories } from "@/lib/hooks/useCategories";
 import { useEntries } from "@/lib/hooks/useEntries";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useRoom } from "@/lib/hooks/useRoom";
 import { METADATA_KEYS } from "@/lib/types";
 
-type Params = { roomId: string };
+// `useSearchParams` requires a Suspense boundary in static-export mode.
+export default function RoomPageWrapper() {
+  return (
+    <Suspense fallback={null}>
+      <RoomPage />
+    </Suspense>
+  );
+}
 
-export default function RoomPage({ params }: { params: Promise<Params> }) {
-  const { roomId } = useResource(params);
+function RoomPage() {
+  const searchParams = useSearchParams();
+  const roomId = searchParams.get("id") ?? "";
   const { name: identity, hydrated: identityHydrated } = useIdentity();
   const [editingName, setEditingName] = useState(false);
   const { room, ready: roomReady, notFound } = useRoom(roomId);
@@ -31,7 +43,6 @@ export default function RoomPage({ params }: { params: Promise<Params> }) {
   const { entries, ready: entriesReady } = useEntries(roomId);
   const [addColumnOpen, setAddColumnOpen] = useState(false);
 
-  // Derived stats for the room header.
   const submitterCount = useMemo(
     () => new Set(entries.map((e) => e.submittedBy)).size,
     [entries],
@@ -55,6 +66,21 @@ export default function RoomPage({ params }: { params: Promise<Params> }) {
 
   if (!identityHydrated) return null;
 
+  if (!roomId) {
+    return (
+      <>
+        <TopBar identity={identity} onEditName={() => setEditingName(true)} />
+        <main className="page">
+          <div className="page__inner">
+            <p className="lede">
+              Missing room id. <Link href="/" style={{ color: "var(--ink)", textDecoration: "underline", textUnderlineOffset: 4 }}>Back to rooms</Link>.
+            </p>
+          </div>
+        </main>
+      </>
+    );
+  }
+
   if (!identity) {
     return (
       <>
@@ -65,11 +91,7 @@ export default function RoomPage({ params }: { params: Promise<Params> }) {
               Set your name on the{" "}
               <Link
                 href="/"
-                style={{
-                  color: "var(--ink)",
-                  textDecoration: "underline",
-                  textUnderlineOffset: 4,
-                }}
+                style={{ color: "var(--ink)", textDecoration: "underline", textUnderlineOffset: 4 }}
               >
                 home page
               </Link>{" "}
@@ -91,11 +113,7 @@ export default function RoomPage({ params }: { params: Promise<Params> }) {
             <p className="lede" style={{ marginTop: 12 }}>
               <Link
                 href="/"
-                style={{
-                  color: "var(--ink)",
-                  textDecoration: "underline",
-                  textUnderlineOffset: 4,
-                }}
+                style={{ color: "var(--ink)", textDecoration: "underline", textUnderlineOffset: 4 }}
               >
                 ← back to rooms
               </Link>
@@ -106,9 +124,7 @@ export default function RoomPage({ params }: { params: Promise<Params> }) {
     );
   }
 
-  // Edit-name overlay (re-shows the NameGate). Simpler than a modal.
   if (editingName) {
-    // Lazy import — only loads when needed.
     return <EditNameOverlay onCancel={() => setEditingName(false)} />;
   }
 
@@ -126,27 +142,20 @@ export default function RoomPage({ params }: { params: Promise<Params> }) {
                 {roomReady && room ? room.name : "Loading…"}
               </h1>
               <p className="lede" style={{ marginTop: 8, fontSize: 14 }}>
-                Anyone with the link can add drivel. Columns are shared; the
-                extractor fills new ones for old rows automatically.
+                Anyone with the link can add drivel. Columns are shared; the extractor fills new ones for old rows automatically.
               </p>
             </div>
             <div className="room-head__stats">
               <div>
-                <div className="stat__num">
-                  {entriesReady ? entries.length : "·"}
-                </div>
+                <div className="stat__num">{entriesReady ? entries.length : "·"}</div>
                 <span className="stat__lbl">Entries</span>
               </div>
               <div>
-                <div className="stat__num">
-                  {categoriesReady ? extractableColumnCount : "·"}
-                </div>
+                <div className="stat__num">{categoriesReady ? extractableColumnCount : "·"}</div>
                 <span className="stat__lbl">Columns</span>
               </div>
               <div>
-                <div className="stat__num">
-                  {entriesReady ? submitterCount : "·"}
-                </div>
+                <div className="stat__num">{entriesReady ? submitterCount : "·"}</div>
                 <span className="stat__lbl">People</span>
               </div>
             </div>
@@ -157,53 +166,32 @@ export default function RoomPage({ params }: { params: Promise<Params> }) {
             identity={identity}
             categories={categories}
             onSubmitted={(entryId, drivel) => {
-              void fetch("/api/extract", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  roomId,
-                  entryId,
-                  drivel,
-                  categories: categories.map((c) => ({
-                    key: c.key,
-                    label: c.label,
-                    description: c.description,
-                    type: c.type,
-                  })),
-                }),
+              // Fire-and-forget; cell-level snapshot listener paints results as they land.
+              void runExtraction({
+                roomId,
+                entryId,
+                drivel,
+                categories,
               }).catch((err) => {
-                console.error("[room] /api/extract POST failed", err);
+                console.error("[room] runExtraction failed", err);
               });
             }}
           />
 
           <div className="section-bar">
             <div className="section-bar__title">
-              <h2 className="h-section" style={{ fontSize: 22 }}>
-                Entries
-              </h2>
+              <h2 className="h-section" style={{ fontSize: 22 }}>Entries</h2>
               <span style={{ fontSize: 12, color: "var(--mute)" }}>
                 {entriesReady ? `${entries.length} total` : "loading…"}
                 {extractingCount > 0 && (
-                  <span
-                    style={{
-                      marginLeft: 10,
-                      color: "var(--extract-fg)",
-                    }}
-                  >
-                    · {extractingCount} cell
-                    {extractingCount === 1 ? "" : "s"} extracting
+                  <span style={{ marginLeft: 10, color: "var(--extract-fg)" }}>
+                    · {extractingCount} cell{extractingCount === 1 ? "" : "s"} extracting
                   </span>
                 )}
               </span>
             </div>
             <div className="section-bar__filters">
-              <button
-                className="btn btn--quiet btn--small"
-                onClick={() => setAddColumnOpen(true)}
-              >
-                + Column
-              </button>
+              <button className="btn btn--quiet btn--small" onClick={() => setAddColumnOpen(true)}>+ Column</button>
             </div>
           </div>
 
@@ -221,26 +209,11 @@ export default function RoomPage({ params }: { params: Promise<Params> }) {
             >
               <p className="h-section" style={{ fontSize: 26 }}>
                 No entries{" "}
-                <em
-                  style={{
-                    color: "var(--accent)",
-                    fontStyle: "italic",
-                  }}
-                >
-                  yet
-                </em>
-                .
+                <em style={{ color: "var(--accent)", fontStyle: "italic" }}>yet</em>.
               </p>
-              <p
-                className="lede"
-                style={{ margin: "10px auto 0", fontSize: 14 }}
-              >
-                Paste your first drivel above. As soon as you hit Add, the
-                row appears with{" "}
-                <span style={{ color: "var(--extract-fg)" }}>
-                  extracting…
-                </span>{" "}
-                placeholders that fill in within a second or two.
+              <p className="lede" style={{ margin: "10px auto 0", fontSize: 14 }}>
+                Paste your first drivel above. As soon as you hit Add, the row appears with{" "}
+                <span style={{ color: "var(--extract-fg)" }}>extracting…</span> placeholders that fill in within a second or two.
               </p>
             </div>
           ) : (
@@ -264,11 +237,7 @@ export default function RoomPage({ params }: { params: Promise<Params> }) {
   );
 }
 
-// Tiny inline overlay so editing your name from a room reuses the same
-// NameGate. We could route to /, but that loses the URL — this lets the
-// user cancel and stay in their room.
 function EditNameOverlay({ onCancel }: { onCancel: () => void }) {
-  // Dynamic import not strictly necessary; just re-using the existing component.
   const NameGateMod =
     require("@/app/components/NameGate").default as typeof import("@/app/components/NameGate").default;
   const { name, setName } = useIdentity();

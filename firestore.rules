@@ -1,13 +1,20 @@
 rules_version = '2';
 
-// COMBINED rules for the sv-nodes Firebase project. This file holds rules
-// for BOTH the sv-nodes app (under /nodes, /regions, /users) AND the
-// drivel-table app (under /rooms). Deploying drivel-table/firestore.rules
-// is what writes this combined ruleset to Firestore — so don't drop the
-// sv-nodes blocks below or you'll break that other app.
+// COMBINED rules for the sv-nodes Firebase project. Holds rules for
+// BOTH the sv-nodes app (under /nodes, /regions, /users) AND
+// drivel-table (under /rooms). Deploying drivel-table/firestore.rules
+// writes this combined ruleset — don't drop the sv-nodes blocks below
+// or you'll break that other app.
 //
-// Deploy from this folder with:
+// Deploy from this folder:
 //   firebase deploy --only firestore:rules
+//
+// drivel-table runs as a static site on GitHub Pages with no server, so
+// updates to entries (the per-cell extraction writes) happen from the
+// browser — see lib/entries.ts and lib/categories.ts. The rules below
+// allow any client with a non-empty `submittedBy` field on the entry
+// to update only the `extracted` map. App Check + the slim attack
+// surface (friend-group, no PII) make this acceptable for the use case.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -59,6 +66,18 @@ service cloud.firestore {
         && request.resource.data.createdBy.size() > 0;
     }
 
+    // Updates that only touch the `extracted` map are permitted from the
+    // browser — this is what powers per-cell extraction writes after
+    // submitEntry and after addCategory's re-extraction loop. We require
+    // that the existing entry already has a submittedBy (since creates
+    // require it, this is always true), and that the update doesn't
+    // change submittedBy / submittedAt / drivel.
+    function entryUpdateOnlyExtracts() {
+      return request.resource.data.submittedBy == resource.data.submittedBy
+        && request.resource.data.submittedAt == resource.data.submittedAt
+        && request.resource.data.drivel == resource.data.drivel;
+    }
+
     match /rooms/{roomId} {
       allow read: if true;
       allow create: if hasCreatedBy();
@@ -67,9 +86,8 @@ service cloud.firestore {
       match /entries/{entryId} {
         allow read: if true;
         allow create: if hasSubmittedBy();
-        // Updates (the per-cell extracted map) only happen via firebase-admin
-        // which bypasses these rules. Block client writes.
-        allow update, delete: if false;
+        allow update: if entryUpdateOnlyExtracts();
+        allow delete: if false;
       }
 
       match /categories/{categoryId} {

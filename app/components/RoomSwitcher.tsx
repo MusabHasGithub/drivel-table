@@ -38,7 +38,7 @@ export default function RoomSwitcher({ identity }: Props) {
     try {
       const slug = await createRoom(draft, identity);
       setDraft("");
-      router.push(`/rooms/${slug}`);
+      router.push(`/rooms/?id=${slug}`);
     } catch (err) {
       if (err instanceof RoomCreateError) {
         setError(err.message);
@@ -174,7 +174,7 @@ function RoomCard({
   return (
     <button
       className="room-card"
-      onClick={() => router.push(`/rooms/${room.slug}`)}
+      onClick={() => router.push(`/rooms/?id=${room.slug}`)}
     >
       <div>
         <h3 className="room-card__name">{room.name}</h3>
