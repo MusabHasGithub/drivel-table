@@ -233,12 +233,14 @@ function Callout({
     };
   }, [target]);
 
-  // Card position. Mirrors sv-nodes' geometry.
+  // Card position. Mirrors sv-nodes' geometry. The default (no target /
+  // welcome step) centers the card on screen; targeted steps re-anchor
+  // based on the resolved side below.
   const CARD_W = Math.min(360, viewport.w - 24);
   const CARD_H_EST = 200;
   const GAP = 14;
   let cardLeft = viewport.w / 2 - CARD_W / 2;
-  let cardTop = viewport.h - CARD_H_EST - 24;
+  let cardTop = viewport.h / 2 - CARD_H_EST / 2;
   let arrowSide: Side | null = null;
 
   if (rect) {
@@ -395,18 +397,42 @@ type Snapshot = {
   categoryCount: number;
   totalCategoryCount: number;
   deletedEntryCount: number;
+  // Greatest editedAt across every cell on every entry at the moment we
+  // entered this step. The "correct a cell" detector waits for some
+  // cell's editedAt to exceed this — meaning the user just made an
+  // edit *during this step*. Old edits from prior testing don't count.
+  maxEditedAt: number;
+  // Submitted-at of the newest non-deleted entry at step entry. The
+  // "watch extraction" detector looks up that exact entry and waits for
+  // its person_name cell to flip from "extracting" to "ok".
+  newestEntrySubmittedAt: number;
 };
 
 function snapshot(
-  entries: { deletedAt?: number | null }[],
+  entries: {
+    submittedAt: number;
+    deletedAt?: number | null;
+    extracted?: Record<string, { editedAt?: number }>;
+  }[],
   categories: { deletedAt?: number | null }[],
 ): Snapshot {
+  const active = entries.filter((e) => !e.deletedAt);
+  const newest = [...active].sort((a, b) => b.submittedAt - a.submittedAt)[0];
+  let maxEditedAt = 0;
+  for (const e of entries) {
+    for (const cell of Object.values(e.extracted ?? {})) {
+      const t = (cell as { editedAt?: number }).editedAt ?? 0;
+      if (t > maxEditedAt) maxEditedAt = t;
+    }
+  }
   return {
-    entryCount: entries.filter((e) => !e.deletedAt).length,
+    entryCount: active.length,
     totalEntryCount: entries.length,
     categoryCount: categories.filter((c) => !c.deletedAt).length,
     totalCategoryCount: categories.length,
     deletedEntryCount: entries.filter((e) => !!e.deletedAt).length,
+    maxEditedAt,
+    newestEntrySubmittedAt: newest?.submittedAt ?? 0,
   };
 }
 
@@ -446,9 +472,29 @@ function makeSteps(args: {
   const { baseline, entries, categories } = args;
   const activeEntries = entries.filter((e) => !e.deletedAt);
   const activeCategories = categories.filter((c) => !c.deletedAt);
-  const newestEntry = [...activeEntries].sort(
+
+  // The entry the user just submitted (advancing them into step 2 / 3).
+  // Pinned by submittedAt so we keep watching THIS entry's status flip,
+  // not whatever happens to be newest if someone else adds one mid-step.
+  const watchedEntry = entries.find(
+    (e) => e.submittedAt === baseline.newestEntrySubmittedAt,
+  );
+  // Fallback to the absolute newest active entry — covers the case
+  // where step 1 captured baseline=0 (no entries yet) and step 2's
+  // "watched" entry needs to be re-found from scratch.
+  const newestActive = [...activeEntries].sort(
     (a, b) => b.submittedAt - a.submittedAt,
   )[0];
+
+  // Greatest editedAt across all cells right now.
+  let currentMaxEditedAt = 0;
+  for (const e of entries) {
+    for (const cell of Object.values(e.extracted ?? {})) {
+      const t = (cell as { editedAt?: number }).editedAt ?? 0;
+      if (t > currentMaxEditedAt) currentMaxEditedAt = t;
+    }
+  }
+  const currentDeletedCount = entries.filter((e) => !!e.deletedAt).length;
 
   return [
     {
@@ -488,8 +534,12 @@ function makeSteps(args: {
       ),
       target: '[data-tut="entries-table"]',
       detect: () => {
-        if (!newestEntry) return false;
-        const c = newestEntry.extracted?.["person_name"];
+        // Watch the specific entry the user just submitted (pinned at
+        // step entry by submittedAt). Falls back to the newest active
+        // entry if the watched one was deleted underneath us.
+        const target = watchedEntry ?? newestActive;
+        if (!target) return false;
+        const c = target.extracted?.["person_name"];
         return c?.status === "ok";
       },
     },
@@ -519,12 +569,9 @@ function makeSteps(args: {
         </p>
       ),
       target: '[data-tut="entries-table"]',
-      detect: () =>
-        entries.some((e) =>
-          Object.values(e.extracted ?? {}).some(
-            (c) => !!(c as { editedAt?: number }).editedAt,
-          ),
-        ),
+      // Delta detector — fires when an edit is made *during this step*,
+      // not just because some cell was edited days ago in another test.
+      detect: () => currentMaxEditedAt > baseline.maxEditedAt,
     },
     {
       kind: "manual",
@@ -550,9 +597,7 @@ function makeSteps(args: {
         </p>
       ),
       target: '[data-tut="entries-table"]',
-      detect: () =>
-        entries.filter((e) => !!e.deletedAt).length >
-        baseline.deletedEntryCount,
+      detect: () => currentDeletedCount > baseline.deletedEntryCount,
     },
     {
       kind: "auto",
@@ -563,9 +608,11 @@ function makeSteps(args: {
         </p>
       ),
       target: '[data-tut="trash-button"]',
-      detect: () =>
-        entries.filter((e) => !!e.deletedAt).length <
-        baseline.deletedEntryCount + 1,
+      // Baseline at this step entry already accounts for the just-deleted
+      // entry (one higher than at step 6 entry). Restoration drops the
+      // count BELOW that baseline. Was previously off-by-one — `< baseline + 1`
+      // is true at baseline and would auto-advance immediately.
+      detect: () => currentDeletedCount < baseline.deletedEntryCount,
     },
     {
       kind: "manual",
