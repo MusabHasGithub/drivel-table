@@ -15,9 +15,9 @@
 //
 // Auto-advance is unchanged — Firestore subscriptions on the shared
 // "tutorial" room detect each action (add entry, add column, edit
-// cell, delete, restore, theme toggle) and advance the step machine
-// automatically. Steps that can't be auto-detected cleanly (sort +
-// drag) use a manual Next button.
+// cell, delete, restore) and advance the step machine automatically.
+// Steps that can't be auto-detected cleanly (sort + drag) use a
+// manual Next button.
 //
 // Zero dim-layer, zero blocking. The popup just floats above the page,
 // pointed at whatever's relevant.
@@ -33,7 +33,6 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useCategories } from "@/lib/hooks/useCategories";
 import { useEntries } from "@/lib/hooks/useEntries";
 import { useIdentity } from "@/lib/hooks/useIdentity";
-import { useTheme } from "@/lib/hooks/useTheme";
 import { useTutorial } from "@/lib/hooks/useTutorial";
 import { ensureTutorialRoom, TUTORIAL_ROOM_ID } from "@/lib/rooms";
 
@@ -69,7 +68,6 @@ export default function Tutorial() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { theme } = useTheme();
 
   const { entries: allEntries } = useEntries(TUTORIAL_ROOM_ID, {
     includeDeleted: true,
@@ -79,17 +77,17 @@ export default function Tutorial() {
   });
 
   const [baseline, setBaseline] = useState(() =>
-    snapshot(allEntries, allCategories, theme),
+    snapshot(allEntries, allCategories),
   );
   const lastStepRef = useRef(step);
 
   useEffect(() => {
     if (lastStepRef.current !== step) {
-      setBaseline(snapshot(allEntries, allCategories, theme));
+      setBaseline(snapshot(allEntries, allCategories));
       lastStepRef.current = step;
     }
     if (allEntries.length > 0 && baseline.entryCount === 0 && step === 1) {
-      setBaseline(snapshot(allEntries, allCategories, theme));
+      setBaseline(snapshot(allEntries, allCategories));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, allEntries.length, allCategories.length]);
@@ -101,7 +99,6 @@ export default function Tutorial() {
     baseline,
     entries: allEntries,
     categories: allCategories,
-    theme,
   });
 
   // Ensure tutorial room exists.
@@ -139,7 +136,7 @@ export default function Tutorial() {
       else setStep(nextStep);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, allEntries, allCategories, theme, inTutorialRoom]);
+  }, [step, allEntries, allCategories, inTutorialRoom]);
 
   if (!identityHydrated || !tutorialHydrated || !identity || done) return null;
 
@@ -372,13 +369,11 @@ type Snapshot = {
   categoryCount: number;
   totalCategoryCount: number;
   deletedEntryCount: number;
-  theme: string;
 };
 
 function snapshot(
   entries: { deletedAt?: number | null }[],
   categories: { deletedAt?: number | null }[],
-  theme: string,
 ): Snapshot {
   return {
     entryCount: entries.filter((e) => !e.deletedAt).length,
@@ -386,7 +381,6 @@ function snapshot(
     categoryCount: categories.filter((c) => !c.deletedAt).length,
     totalCategoryCount: categories.length,
     deletedEntryCount: entries.filter((e) => !!e.deletedAt).length,
-    theme,
   };
 }
 
@@ -422,9 +416,8 @@ function makeSteps(args: {
     extracted?: Record<string, { status: string; editedAt?: number }>;
   }[];
   categories: { key: string; deletedAt?: number | null }[];
-  theme: string;
 }): Step[] {
-  const { baseline, entries, categories, theme } = args;
+  const { baseline, entries, categories } = args;
   const activeEntries = entries.filter((e) => !e.deletedAt);
   const activeCategories = categories.filter((c) => !c.deletedAt);
   const newestEntry = [...activeEntries].sort(
@@ -547,17 +540,6 @@ function makeSteps(args: {
       detect: () =>
         entries.filter((e) => !!e.deletedAt).length <
         baseline.deletedEntryCount + 1,
-    },
-    {
-      kind: "auto",
-      title: "Toggle dark mode.",
-      body: (
-        <p style={{ margin: 0 }}>
-          Click the sun/moon up top. It&apos;ll remember your pick.
-        </p>
-      ),
-      target: '[data-tut="theme-toggle"]',
-      detect: () => theme !== baseline.theme,
     },
     {
       kind: "manual",
