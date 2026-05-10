@@ -24,6 +24,29 @@ import { extractFieldsClient } from "./gemini-client";
 import type { Category, CategorySpec, ExtractedMap } from "./types";
 import { METADATA_KEYS } from "./types";
 
+// Manually override a single cell's value (the user correcting the LLM).
+// Writes to entry.extracted[key] with status "ok" + editedAt/editedBy.
+// Does NOT clobber other cells; uses dot-path syntax so concurrent
+// re-extractions on different keys are safe.
+export async function updateExtractedValue(args: {
+  roomId: string;
+  entryId: string;
+  categoryKey: string;
+  value: string | string[] | null;
+  editedBy: string;
+}): Promise<void> {
+  const db = getDbOrNull();
+  if (!db) throw new Error("Firebase isn't configured.");
+  await updateDoc(doc(db, "rooms", args.roomId, "entries", args.entryId), {
+    [`extracted.${args.categoryKey}`]: {
+      value: args.value,
+      status: "ok",
+      editedAt: Date.now(),
+      editedBy: args.editedBy,
+    },
+  });
+}
+
 // Soft-delete an entry (sets deletedAt timestamp). The entry is hidden
 // from the table by default but its drivel + extracted map are kept
 // untouched so restoring brings it back exactly as it was.

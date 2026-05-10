@@ -230,7 +230,7 @@ function makeSteps(args: {
   entries: {
     submittedAt: number;
     deletedAt?: number | null;
-    extracted?: Record<string, { status: string }>;
+    extracted?: Record<string, { status: string; editedAt?: number }>;
   }[];
   categories: { key: string; deletedAt?: number | null }[];
   theme: string;
@@ -302,7 +302,26 @@ function makeSteps(args: {
       ),
       detect: () => baseline.categoryCount < activeCategories.length,
     },
-    // Step 4 — try sort + drag.
+    // Step 4a — correct a cell. Auto-detected when any extracted cell
+    // gets a user override (editedAt set on any entry's extracted map).
+    {
+      kind: "auto",
+      title: "Correct a cell.",
+      body: (
+        <p style={{ margin: 0 }}>
+          The LLM gets things wrong sometimes. Click any cell value to
+          edit it inline — Enter saves, Escape cancels. Try editing one
+          cell to whatever you want.
+        </p>
+      ),
+      detect: () =>
+        entries.some((e) =>
+          Object.values(e.extracted ?? {}).some(
+            (cell) => !!(cell as { editedAt?: number }).editedAt,
+          ),
+        ),
+    },
+    // Step 4b — try sort + drag.
     {
       kind: "manual",
       title: "Sort and reorder columns.",

@@ -24,6 +24,13 @@ export const ExtractedCellSchema = z.object({
   errorMessage: z.string().optional(),
   // Unix ms; only set when status === "ok"
   extractedAt: z.number().optional(),
+  // Manual override timestamps — set when the user click-edits a cell
+  // to correct the LLM's output. Presence of editedAt means "user
+  // overrode the AI"; the cell still renders the same way (the value
+  // field is the source of truth either way) but the edit isn't lost
+  // even if a category is removed and re-added later.
+  editedAt: z.number().optional(),
+  editedBy: z.string().optional(),
 });
 
 export const ExtractedMapSchema = z.record(z.string(), ExtractedCellSchema);

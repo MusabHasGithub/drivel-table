@@ -94,11 +94,16 @@ export default function EntryTable({
         header: cat.label,
         accessorFn: (row) => sortKey(row, cat.key),
         cell: ({ row }) => (
-          <CellRenderer entry={row.original} categoryKey={cat.key} />
+          <CellRenderer
+            roomId={roomId}
+            identity={identity}
+            entry={row.original}
+            category={cat}
+          />
         ),
         enableSorting: true,
       })),
-    [categories],
+    [categories, roomId, identity],
   );
 
   const table = useReactTable({

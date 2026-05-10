@@ -905,6 +905,39 @@ table.entries {
   max-width: 280px;
 }
 
+/* click-to-edit affordance on extracted cells */
+.cell-editable {
+  cursor: text;
+  display: inline-block;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  transition: background 100ms ease, box-shadow 100ms ease;
+}
+.cell-editable:hover {
+  background: var(--paper-2);
+  box-shadow: inset 0 -1px 0 var(--rule-strong);
+}
+.cell-editable:focus {
+  outline: none;
+  background: var(--paper-2);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.cell-edit {
+  display: block;
+  width: 100%;
+  min-width: 120px;
+  background: var(--card);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
 /* status pills */
 .status {
   display: inline-flex;
